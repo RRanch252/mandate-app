@@ -1,0 +1,244 @@
+{
+  "version": "0.1.0",
+  "platform": "Mandate",
+  "vision": "Boutique advisors at INVRT will walk into every client conversation with a cited, mandate-scoped briefing because Mandate turns the mandate's documents into defensible work product, replacing Ctrl-F and uncited chat with clickable sources and reviewed exports.",
+  "mission": "Give INVRT analysts and leads one mandate-scoped workspace to ingest documents, interrogate them with citations, fill an evidence table, and export a reviewed Word briefing so partners spend time on judgment rather than document archaeology.",
+  "signedOff": false,
+  "personas": [
+    {
+      "name": "Managing Partner",
+      "type": "buyer",
+      "jobs": [
+        "Approve client-ready briefings without leaking other mandates",
+        "Judge advice quality from cited evidence rather than unaudited chat",
+        "Decide build-versus-buy for research tooling with a clear internal alternative"
+      ]
+    },
+    {
+      "name": "Mandate lead",
+      "type": "user",
+      "jobs": [
+        "Keep a shared fact base for the mandate",
+        "Prioritise diligence questions before the next client call",
+        "Block export until the briefing is good enough"
+      ]
+    },
+    {
+      "name": "Analyst",
+      "type": "user",
+      "jobs": [
+        "Ingest CIMs, filings, and notes into one corpus",
+        "Ask questions and fill an evidence table with citations",
+        "Draft the house-template memo from the table"
+      ]
+    },
+    {
+      "name": "Operator",
+      "type": "admin",
+      "jobs": [
+        "Manage membership and roles on mandates",
+        "Export audit packs for any research run",
+        "Execute retention and offboarding deletes"
+      ]
+    }
+  ],
+  "epics": [
+    {
+      "id": "EPIC-001",
+      "title": "Cited document interrogation",
+      "problemStatement": "Analysts at boutique advisory firms struggle to interrogate CIMs, filings, and notes because generic chat and desktop search do not attach clickable sources, which results in uncited claims and slow Ctrl-F work. Today they paste fragments into consumer AI at a cost of hours per mandate and unverifiable answers.",
+      "features": [
+        {
+          "id": "FEAT-002",
+          "title": "Document ingest and citation index",
+          "requirements": [
+            "User with mandate membership can upload PDF, DOCX, XLSX, and PPTX files into that mandate only",
+            "System parses documents asynchronously, writes chunks with page or section locators, and stamps tenant plus mandate ACL on every chunk",
+            "System records an ingest report listing files that failed parse and files that completed indexing",
+            "Retrieval and generation tools cannot read chunks from other mandates"
+          ],
+          "acceptanceCriteria": [
+            "Given a mandate with no files, when an analyst uploads a PDF, then the file appears as indexing and becomes queryable after ingest completes",
+            "Given two mandates, when a user queries mandate A, then no chunk from mandate B is returned",
+            "Given a corrupt file, when ingest fails, then the ingest report names the file and the error without blocking other files"
+          ]
+        },
+        {
+          "id": "FEAT-003",
+          "title": "Cited question answering",
+          "requirements": [
+            "User can ask a natural-language question scoped to the current mandate corpus",
+            "System answers only with claims that include citation spans, or explicitly states the answer is not in the corpus",
+            "User can open a citation to the source locator (page or section) in the original document",
+            "User can reject a citation; rejected citations are stored on the run and cannot appear on export without a replacement"
+          ],
+          "acceptanceCriteria": [
+            "Given an indexed filing that states revenue, when the analyst asks for revenue, then the answer includes a citation that opens the supporting span",
+            "Given a question whose answer is absent, when the analyst asks, then the system states not in corpus rather than inventing a figure",
+            "Given a rejected citation, when the user exports later, then that citation is omitted unless replaced"
+          ]
+        },
+        {
+          "id": "FEAT-004",
+          "title": "Evidence table",
+          "requirements": [
+            "User can create a table whose rows are topics or entities and whose columns are questions from a briefing template",
+            "System fills each cell from the mandate corpus with a short answer plus citations",
+            "User can edit cell text, mark a cell unverified, or rerun a single cell",
+            "User can export the table to XLSX or CSV including citation locators"
+          ],
+          "acceptanceCriteria": [
+            "Given a briefing template, when the analyst runs fill, then every cell is either filled with citations, marked not in corpus, or marked unverified",
+            "Given an edited cell, when the user exports XLSX, then the edited text is what appears in the spreadsheet",
+            "Given a 20 by 8 table, when fill runs, then the UI shows per-cell progress rather than a single blocking spinner"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EPIC-002",
+      "title": "Institutional work product",
+      "problemStatement": "Mandate leads struggle to turn research chat into a client-ready memo because generic AI produces unformatted prose without a citation appendix, which results in partners rebuilding Word documents by hand. Today they copy-paste at a cost of consistency and auditability.",
+      "features": [
+        {
+          "id": "FEAT-005",
+          "title": "Briefing memo generate and approve-to-export",
+          "requirements": [
+            "User can generate a Word memo from the current evidence table plus cited Q&A using the INVRT house template",
+            "Memo includes a citation appendix mapping claims to source locators",
+            "Export to DOCX is blocked until a user with lead or partner role approves the run",
+            "Exported files are labelled as AI-assisted and human-reviewed"
+          ],
+          "acceptanceCriteria": [
+            "Given a filled evidence table, when an analyst generates a memo, then a DOCX preview is stored on the run without downloading yet",
+            "Given an analyst role, when they click export, then the system requires lead or partner approval",
+            "Given approval, when export completes, then the file downloads and an audit event records actor, run id, and model version"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EPIC-003",
+      "title": "Mandate workspace and isolation",
+      "problemStatement": "Managing partners struggle to let the team use AI on client files because consumer tools mix contexts and lack membership, which results in leakage risk that can end client relationships. Today they ban tools or work in unmanaged accounts.",
+      "features": [
+        {
+          "id": "FEAT-001",
+          "title": "Mandate workspace and membership ACL",
+          "requirements": [
+            "User with permission can create a mandate with name, client label, and restricted flag",
+            "Only members of a mandate can list documents, run research, or view work product for that mandate",
+            "Admin can assign roles analyst, lead, partner, and admin on the mandate",
+            "Removing a member revokes retrieve and generate access immediately"
+          ],
+          "acceptanceCriteria": [
+            "Given a non-member, when they open a mandate URL, then they receive not found or forbidden without confirming the mandate exists",
+            "Given a restricted mandate, when a firm-wide search is attempted, then that mandate is excluded",
+            "Given membership removal, when the former member retries a prior run URL, then access is denied"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EPIC-004",
+      "title": "Encoded INVRT workflows",
+      "problemStatement": "Analysts struggle to start from a blank chat because INVRT's diligence process is not encoded, which results in inconsistent question coverage across mandates. Today each analyst improvises a checklist in a personal doc.",
+      "features": [
+        {
+          "id": "FEAT-006",
+          "title": "Diligence question list",
+          "requirements": [
+            "User can run the diligence question-list workflow against the mandate corpus",
+            "System produces a structured list of questions mapped to INVRT checklist topics with citations for what is already answered and gaps for what is not",
+            "Mandate lead can prioritise, assign, or dismiss questions",
+            "Question list can be exported to DOCX or XLSX"
+          ],
+          "acceptanceCriteria": [
+            "Given a CIM that states customers but not churn, when the workflow runs, then churn appears as a gap and customers appear as answered with citations",
+            "Given lead dismissal of a question, when the list is re-exported, then that question is omitted or marked dismissed"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EPIC-005",
+      "title": "Governance, audit, and safe AI",
+      "problemStatement": "Operators struggle to allow AI on confidential files because there is no audit of prompts, retrieval, or model version, which results in either a blanket ban or unauditable risk. Today they cannot answer who saw what.",
+      "features": [
+        {
+          "id": "FEAT-007",
+          "title": "Audit log and export pack",
+          "requirements": [
+            "System writes an immutable audit event for ingest, query, table fill, memo generate, approve, export, membership change, and delete",
+            "Each AI event stores redacted prompt metadata, model provider and version, retrieval chunk ids, actor, mandate id, and token cost",
+            "Admin can export an audit pack for a mandate or a single run within five minutes of request",
+            "Prompts and document text in logs are redacted per policy; raw secrets never persist in prompts or logs"
+          ],
+          "acceptanceCriteria": [
+            "Given a completed Q&A, when admin opens the run, then model version and chunk ids are visible",
+            "Given an audit export, when downloaded, then it contains events for that mandate only"
+          ]
+        },
+        {
+          "id": "FEAT-008",
+          "title": "No-train, injection defense, and limitation disclosure",
+          "requirements": [
+            "System configuration and vendor contracts assert customer data is not used to train provider models",
+            "Uploaded documents are treated as untrusted; agent tools are allowlisted and cannot issue arbitrary network calls",
+            "UI discloses AI-assisted output and known limitations on every generate and export surface",
+            "High-risk export remains human-in-the-loop as specified in FEAT-005"
+          ],
+          "acceptanceCriteria": [
+            "Given a document that contains a prompt-injection attempting to call a non-allowlisted tool, when a run executes, then the tool is not invoked and the event is audited",
+            "Given the memo preview, when rendered, then AI-assisted disclosure is visible before download"
+          ]
+        }
+      ]
+    }
+  ],
+  "roadmap": {
+    "horizon": "mvp",
+    "phases": [
+      {
+        "phase": "MVP",
+        "capabilities": [
+          "FEAT-001 Mandate workspace and membership ACL",
+          "FEAT-002 Document ingest and citation index",
+          "FEAT-003 Cited question answering",
+          "FEAT-004 Evidence table",
+          "FEAT-005 Briefing memo generate and approve-to-export",
+          "FEAT-006 Diligence question list",
+          "FEAT-007 Audit log and export pack",
+          "FEAT-008 No-train, injection defense, and limitation disclosure"
+        ],
+        "learningGoals": [
+          "Validate that a partner will accept a Mandate memo as a starting draft on a mandate-shaped corpus",
+          "Measure whether the evidence table is the primary surface versus chat",
+          "Determine whether MVP is useful without a licensed fundamentals feed"
+        ]
+      },
+      {
+        "phase": "v1",
+        "capabilities": [
+          "House-style PowerPoint outline from the briefing",
+          "One licensed fundamentals connector into a comps skeleton",
+          "SharePoint or Drive sync into the mandate corpus"
+        ],
+        "learningGoals": [
+          "Confirm whether artifacts without slides stall adoption"
+        ]
+      },
+      {
+        "phase": "v2",
+        "capabilities": [
+          "Virtual data room connector",
+          "Scheduled what-changed runs on the corpus",
+          "Optional firm-wide memory with Chinese walls"
+        ],
+        "learningGoals": [
+          "Prove mandate memory can compound without cross-client retrieval"
+        ]
+      }
+    ]
+  }
+}

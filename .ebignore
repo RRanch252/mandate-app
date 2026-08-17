@@ -1,0 +1,5 @@
+
+# --- Magpii Skill Harness: exclude from deployments ---
+.harness/
+HARNESS.md
+.github/copilot-instructions.md

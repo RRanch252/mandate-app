@@ -1,0 +1,6 @@
+{
+  "projectName": "Your project name",
+  "customer": "Customer or client name",
+  "description": "Optional project context for harness agents",
+  "contacts": []
+}

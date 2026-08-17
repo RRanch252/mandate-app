@@ -1,0 +1,366 @@
+{
+  "version": "0.1.0",
+  "entityContractVersion": "0.1.0",
+  "project": "Mandate",
+  "signedOff": true,
+  "signedOffAt": "2026-08-17T09:46:00.000Z",
+  "workflowRegistry": [
+    {
+      "name": "mandate_provisioning",
+      "type": "human",
+      "subjectEntity": "Mandate",
+      "actorEntities": ["User", "Membership"],
+      "stepCount": 4,
+      "terminalStates": ["active", "archived"]
+    },
+    {
+      "name": "document_ingest",
+      "type": "automated",
+      "subjectEntity": "Document",
+      "actorEntities": ["User", "Membership"],
+      "stepCount": 5,
+      "terminalStates": ["indexed", "failed"]
+    },
+    {
+      "name": "cited_qa",
+      "type": "hybrid",
+      "subjectEntity": "ResearchRun",
+      "actorEntities": ["User", "Membership", "RetrievalAgent", "AnsweringAgent", "LlmProvider"],
+      "stepCount": 6,
+      "terminalStates": ["answered", "no_evidence", "failed"]
+    },
+    {
+      "name": "evidence_table_fill",
+      "type": "hybrid",
+      "subjectEntity": "EvidenceTable",
+      "actorEntities": ["User", "Membership", "RetrievalAgent", "AnsweringAgent"],
+      "stepCount": 5,
+      "terminalStates": ["filled", "partial"]
+    },
+    {
+      "name": "memo_generate_approve_export",
+      "type": "hybrid",
+      "subjectEntity": "BriefingMemo",
+      "actorEntities": ["User", "Membership", "AnsweringAgent"],
+      "stepCount": 5,
+      "terminalStates": ["exported", "rejected"]
+    }
+  ],
+  "transitionAuthority": [
+    {
+      "entity": "Mandate",
+      "from": "active",
+      "to": "archived",
+      "workflow": "mandate_provisioning",
+      "actors": ["partner", "admin"],
+      "guards": ["actor holds active Membership on this mandate", "no BriefingMemo in pending_approval"],
+      "sideEffects": ["AuditEvent recorded"]
+    },
+    {
+      "entity": "Membership",
+      "from": "active",
+      "to": "revoked",
+      "workflow": "mandate_provisioning",
+      "actors": ["admin", "partner"],
+      "guards": ["mandate retains at least one active partner or admin"],
+      "sideEffects": ["AuditEvent recorded", "prior run URLs return not found for the former member"]
+    },
+    {
+      "entity": "Document",
+      "from": "uploaded",
+      "to": "parsing",
+      "workflow": "document_ingest",
+      "actors": ["system"],
+      "guards": ["file extension is pdf or docx", "uploader holds active Membership on the mandate"],
+      "sideEffects": ["IngestReport opened or joined"]
+    },
+    {
+      "entity": "Document",
+      "from": "parsing",
+      "to": "indexed",
+      "workflow": "document_ingest",
+      "actors": ["system"],
+      "guards": ["at least one DocumentChunk written", "every chunk carries firm_id, mandate_id and a resolvable locator"],
+      "sideEffects": ["DocumentChunk rows created", "full-text index updated", "document.indexed emitted"]
+    },
+    {
+      "entity": "Document",
+      "from": "parsing",
+      "to": "failed",
+      "workflow": "document_ingest",
+      "actors": ["system"],
+      "guards": [],
+      "sideEffects": ["parser error recorded on IngestReport", "sibling files in the batch continue", "document.ingest_failed emitted"]
+    },
+    {
+      "entity": "ResearchRun",
+      "from": "retrieving",
+      "to": "answering",
+      "workflow": "cited_qa",
+      "actors": ["system"],
+      "guards": ["at least one DocumentChunk scored above the relevance floor", "every retrieved chunk has mandate_id equal to the run mandate_id"],
+      "sideEffects": ["retrieved chunk ids recorded on the run"]
+    },
+    {
+      "entity": "ResearchRun",
+      "from": "retrieving",
+      "to": "no_evidence",
+      "workflow": "cited_qa",
+      "actors": ["system"],
+      "guards": [],
+      "sideEffects": ["run answer set to the not-in-corpus disclosure", "AuditEvent recorded"]
+    },
+    {
+      "entity": "ResearchRun",
+      "from": "answering",
+      "to": "answered",
+      "workflow": "cited_qa",
+      "actors": ["system"],
+      "guards": ["every claim carries at least one Citation to a retrieved chunk"],
+      "sideEffects": ["Citation rows created in proposed state", "AuditEvent records model provider, version and answer mode"]
+    },
+    {
+      "entity": "ResearchRun",
+      "from": "answering",
+      "to": "no_evidence",
+      "workflow": "cited_qa",
+      "actors": ["system"],
+      "guards": ["AnsweringAgent reports retrieved context does not support an answer"],
+      "sideEffects": ["AnsweringAgent moves to refused", "AuditEvent recorded"]
+    },
+    {
+      "entity": "Citation",
+      "from": "proposed",
+      "to": "rejected",
+      "workflow": "cited_qa",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["actor holds active Membership on the mandate"],
+      "sideEffects": ["citation excluded from memo generation", "AuditEvent recorded"]
+    },
+    {
+      "entity": "EvidenceCell",
+      "from": "queued",
+      "to": "filled",
+      "workflow": "evidence_table_fill",
+      "actors": ["system"],
+      "guards": ["backing ResearchRun reached answered", "cell has at least one Citation"],
+      "sideEffects": ["per-cell progress pushed to the UI"]
+    },
+    {
+      "entity": "EvidenceCell",
+      "from": "queued",
+      "to": "not_in_corpus",
+      "workflow": "evidence_table_fill",
+      "actors": ["system"],
+      "guards": ["backing ResearchRun reached no_evidence"],
+      "sideEffects": ["cell marked not in corpus rather than left blank"]
+    },
+    {
+      "entity": "EvidenceCell",
+      "from": "filled",
+      "to": "edited",
+      "workflow": "evidence_table_fill",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["actor holds active Membership on the mandate"],
+      "sideEffects": ["retrieved text retained for audit", "edited text is what appears on export", "AuditEvent recorded"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "from": "draft",
+      "to": "generated",
+      "workflow": "memo_generate_approve_export",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["EvidenceTable has at least one cell not in empty state", "no rejected Citation is referenced without a replacement"],
+      "sideEffects": ["DOCX rendered and stored server-side only", "citation appendix built", "AI-assisted label written into the document"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "from": "generated",
+      "to": "pending_approval",
+      "workflow": "memo_generate_approve_export",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["memo has a stored DOCX preview"],
+      "sideEffects": ["in-app approval request raised on the mandate"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "from": "pending_approval",
+      "to": "approved",
+      "workflow": "memo_generate_approve_export",
+      "actors": ["lead", "partner"],
+      "guards": ["approver holds active Membership with role lead or partner", "approver recorded separately from the generator"],
+      "sideEffects": ["download token issued", "AuditEvent records approver, run id and model version"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "from": "pending_approval",
+      "to": "rejected",
+      "workflow": "memo_generate_approve_export",
+      "actors": ["lead", "partner"],
+      "guards": [],
+      "sideEffects": ["rejection reason stored", "AuditEvent recorded"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "from": "approved",
+      "to": "exported",
+      "workflow": "memo_generate_approve_export",
+      "actors": ["analyst", "lead", "partner", "admin"],
+      "guards": ["memo state is approved", "download token valid"],
+      "sideEffects": ["DOCX streamed to the browser", "AuditEvent records actor, run id and model version"]
+    }
+  ],
+  "eventCatalogue": [
+    {
+      "name": "mandate.created",
+      "emittedBy": "mandate_provisioning",
+      "consumedBy": ["audit_writer", "evidence_table_bootstrap"]
+    },
+    {
+      "name": "membership.revoked",
+      "emittedBy": "mandate_provisioning",
+      "consumedBy": ["audit_writer", "session_invalidator"]
+    },
+    {
+      "name": "document.uploaded",
+      "emittedBy": "document_ingest",
+      "consumedBy": ["ingest_document", "audit_writer"]
+    },
+    {
+      "name": "document.indexed",
+      "emittedBy": "document_ingest",
+      "consumedBy": ["audit_writer", "corpus_status_projector"]
+    },
+    {
+      "name": "document.ingest_failed",
+      "emittedBy": "document_ingest",
+      "consumedBy": ["audit_writer", "corpus_status_projector"]
+    },
+    {
+      "name": "run.answered",
+      "emittedBy": "cited_qa",
+      "consumedBy": ["audit_writer", "evidence_table_fill"]
+    },
+    {
+      "name": "run.no_evidence",
+      "emittedBy": "cited_qa",
+      "consumedBy": ["audit_writer", "evidence_table_fill"]
+    },
+    {
+      "name": "citation.rejected",
+      "emittedBy": "cited_qa",
+      "consumedBy": ["audit_writer", "memo_generate_approve_export"]
+    },
+    {
+      "name": "table.fill_completed",
+      "emittedBy": "evidence_table_fill",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "memo.generated",
+      "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "memo.approval_requested",
+      "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer", "in_app_notifier"]
+    },
+    {
+      "name": "memo.approved",
+      "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer", "in_app_notifier"]
+    },
+    {
+      "name": "memo.rejected",
+      "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer", "in_app_notifier"]
+    },
+    {
+      "name": "memo.exported",
+      "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer"]
+    }
+  ],
+  "jobCatalogue": [
+    {
+      "name": "ingest_document",
+      "triggeredBy": "document.uploaded",
+      "subjectEntity": "Document",
+      "onSuccess": "document.indexed",
+      "onFailure": "document.ingest_failed"
+    },
+    {
+      "name": "answer_question",
+      "triggeredBy": "run.start",
+      "subjectEntity": "ResearchRun",
+      "onSuccess": "run.answered",
+      "onFailure": "run.no_evidence"
+    },
+    {
+      "name": "fill_evidence_cell",
+      "triggeredBy": "cell.fill_requested",
+      "subjectEntity": "EvidenceCell",
+      "onSuccess": "run.answered",
+      "onFailure": "run.no_evidence"
+    },
+    {
+      "name": "render_memo_docx",
+      "triggeredBy": "memo.generate",
+      "subjectEntity": "BriefingMemo",
+      "onSuccess": "memo.generated",
+      "onFailure": "memo.render_failed"
+    },
+    {
+      "name": "audit_writer",
+      "triggeredBy": "any workflow event",
+      "subjectEntity": "AuditEvent",
+      "onSuccess": "audit.recorded",
+      "onFailure": "audit.write_failed"
+    }
+  ],
+  "notificationCatalogue": [
+    {
+      "name": "ingest_batch_finished",
+      "triggeredBy": "document.indexed",
+      "recipients": ["uploader"],
+      "channel": "in-app",
+      "entityStateAtSend": "indexed"
+    },
+    {
+      "name": "ingest_file_failed",
+      "triggeredBy": "document.ingest_failed",
+      "recipients": ["uploader"],
+      "channel": "in-app",
+      "entityStateAtSend": "failed"
+    },
+    {
+      "name": "memo_awaiting_approval",
+      "triggeredBy": "memo.approval_requested",
+      "recipients": ["mandate leads", "mandate partners"],
+      "channel": "in-app",
+      "entityStateAtSend": "pending_approval"
+    },
+    {
+      "name": "memo_approved",
+      "triggeredBy": "memo.approved",
+      "recipients": ["memo generator"],
+      "channel": "in-app",
+      "entityStateAtSend": "approved"
+    },
+    {
+      "name": "memo_rejected",
+      "triggeredBy": "memo.rejected",
+      "recipients": ["memo generator"],
+      "channel": "in-app",
+      "entityStateAtSend": "rejected"
+    }
+  ],
+  "openDecisions": [
+    "All notifications are in-app only. Email delivery and any email-reading or email-sending agent are explicitly excluded from this MVP at the owner's instruction, so memo_awaiting_approval will only be seen by someone who has the app open.",
+    "Jobs run in-process inside the Node API rather than on a durable queue. An API restart mid-ingest leaves a Document stuck in parsing and it must be retried by hand. A real queue is the first infrastructure change needed before more than one person uses this concurrently.",
+    "answer_question declares onFailure as run.no_evidence because a retrieval miss is the expected non-answer path. A genuine infrastructure error moves the run to failed instead, which is not modelled as an event because nothing downstream consumes it in MVP.",
+    "The approve-to-export gate is enforced in the API, not just the UI: the download route re-checks memo state and approver role on every request. The MVP does not prevent the same person from generating and then approving their own memo when they hold the lead or partner role, it only records both actors. Whether INVRT needs genuine four-eyes separation is an open policy question.",
+    "table.fill_completed fires even when some cells landed in not_in_corpus or unverified, which is why EvidenceTable has a partial terminal state alongside filled."
+  ]
+}

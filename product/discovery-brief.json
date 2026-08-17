@@ -1,0 +1,91 @@
+{
+  "version": "0.1.0",
+  "productContext": "greenfield",
+  "segment": "vertical",
+  "confidence": "M",
+  "signedOff": false,
+  "problemSummary": "Analysts and mandate leads at boutique advisory firms struggle to turn CIMs, filings, notes, and data-room files into a briefing a partner can defend, because search is fragmented across drives, PDFs, and generic chat tools that lack citations and client isolation. That results in slow time-to-insight, uncited claims, and leakage risk. Today they Ctrl-F documents and rebuild memos by hand at a cost of many hours per mandate plus reputational risk.",
+  "personas": [
+    {
+      "name": "Managing Partner",
+      "type": "buyer",
+      "primaryJob": "Ship client-ready advice without leaking other clients' materials",
+      "successMetric": "Time-to-cited-briefing down; zero cross-mandate retrieval incidents"
+    },
+    {
+      "name": "Mandate lead",
+      "type": "user",
+      "primaryJob": "Keep a shared, current fact base for the mandate",
+      "successMetric": "Cited briefing ready before the next client meeting"
+    },
+    {
+      "name": "Analyst",
+      "type": "user",
+      "primaryJob": "Interrogate the mandate corpus and draft defensible materials",
+      "successMetric": "Hours from document dump to cited memo"
+    },
+    {
+      "name": "Operator",
+      "type": "admin",
+      "primaryJob": "Control access, retention, and audit of research runs",
+      "successMetric": "Export a complete audit pack for any run in under five minutes"
+    }
+  ],
+  "assumptions": [
+    {
+      "assumption": "Advisors will not trust uncited chatbot output for client work",
+      "evidenceTag": "S",
+      "status": "pending"
+    },
+    {
+      "assumption": "INVRT's first painful job is cited briefing and diligence, not LBO/DCF model factories",
+      "evidenceTag": "A",
+      "status": "pending"
+    },
+    {
+      "assumption": "Uploads plus public filings are enough to complete a useful MVP briefing",
+      "evidenceTag": "A",
+      "status": "pending"
+    },
+    {
+      "assumption": "Mandate membership is the correct isolation boundary (not a single firm-wide corpus)",
+      "evidenceTag": "O",
+      "status": "pending"
+    },
+    {
+      "assumption": "A boutique advisory will not buy an enterprise IB agent platform as its system of record",
+      "evidenceTag": "A",
+      "status": "pending"
+    }
+  ],
+  "mvpScope": {
+    "coreJob": "Produce a cited target briefing (evidence table plus Word memo) from a mandate document corpus",
+    "inScope": [
+      "Mandate workspace with membership ACL",
+      "Document ingest and citation index for PDF, DOCX, XLSX, PPTX",
+      "Cited question answering with span-level or page-level sources",
+      "Evidence table (topics by questions) with per-cell citations",
+      "House-template Word memo with citation appendix and approve-to-export",
+      "Diligence question-list workflow from the same corpus",
+      "Immutable audit of retrieval, model version, actor, and cost",
+      "Contractual no-training-on-customer-data posture"
+    ],
+    "antiGoals": [
+      "Bloomberg, Capital IQ, or PitchBook replacement",
+      "Scraping paid research or vendor logins",
+      "Hundreds of investment-banking agents in v1",
+      "Email-delegated unsupervised agents",
+      "Custom foundation-model training",
+      "PowerPoint pitchbooks and full DCF/LBO engines in MVP",
+      "Commercial multi-tenant SaaS launch in this inception"
+    ]
+  },
+  "downstreamHandoff": {
+    "entity-architect": "Tenant, User, Role, WallGroup, Mandate, Membership, Party, Document, DocumentVersion, Chunk, Claim, Evidence, Locator, Playbook, Run, Artifact, Review, AgentDefinition, AgentRun, ToolCall, PromptVersion, EvidenceTable, TableCell, Memo, Export, AuditEvent, Connector, VendorEntitlement, IngestJob. Actors: analyst, lead, partner, reviewer, compliance, admin, worker. Verbs: create, invite, upload, ingest, index, query, fill, draft, revise, approve, export, retain, delete, offboard, wall_cross. Entity classes: Org, Identity, Domain, PlatformData, ExternalApi, AiAgent.",
+    "ux-flow-designer": "Journeys: first ingest, cited Q&A, evidence table edit, memo review and export, admin audit export. Entry: /mandates/:id. Error recovery: ingest failure, empty retrieval, citation reject, export blocked without approval.",
+    "application-architect": "Single JS API plus Python worker pool. Bounded contexts: identity, corpus, research run, work product, connectors, governance. Do not split microservices for MVP.",
+    "billing-subscription-engineer": "Skipped — internal tool, not monetised in this release.",
+    "ai-feature-engineer": "RAG plus tool calling plus table copilot. Risk tier high on export. Guardrails: tenant ACL on retrieval, input injection defense, output cite-or-refuse, tool allowlist, PII redaction in logs. Eval: citation coverage, citation precision, missing-fact honesty, numeric match, cross-mandate leak = 0.",
+    "security-architect": "Threat model: document prompt injection, cross-mandate RAG leak, export exfiltration, vendor subprocessors, no-train contractual controls, mandate offboarding."
+  }
+}

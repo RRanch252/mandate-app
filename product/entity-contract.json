@@ -1,0 +1,555 @@
+{
+  "version": "0.1.0",
+  "project": "Mandate",
+  "signedOff": true,
+  "signedOffAt": "2026-08-17T09:46:00.000Z",
+  "entityRegistry": [
+    {
+      "name": "Firm",
+      "entityClass": "Org",
+      "states": ["active", "suspended"],
+      "workflowParticipation": ["mandate_provisioning"],
+      "description": "Top-level tenant. INVRT is the only Firm in the MVP, but every row in every table carries firm_id so a second Firm can never be reached by a query that forgets to scope."
+    },
+    {
+      "name": "User",
+      "entityClass": "Identity",
+      "states": ["invited", "active", "disabled"],
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "A named person at the Firm. Carries no mandate access on its own; all access is granted through Membership."
+    },
+    {
+      "name": "Membership",
+      "entityClass": "Identity",
+      "states": ["active", "revoked"],
+      "workflowParticipation": ["mandate_provisioning"],
+      "description": "Join between User and Mandate carrying role analyst, lead, partner, or admin. Revoking sets state revoked, which immediately removes retrieve and generate rights (FEAT-001)."
+    },
+    {
+      "name": "Mandate",
+      "entityClass": "Domain",
+      "states": ["active", "archived"],
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "The engagement workspace and the isolation boundary for retrieval. Carries a restricted flag that excludes it from any firm-wide surface. Every Document, Chunk, Run, Table and Memo hangs off exactly one Mandate."
+    },
+    {
+      "name": "Document",
+      "entityClass": "Domain",
+      "states": ["uploaded", "parsing", "indexed", "failed", "deleted"],
+      "workflowParticipation": ["document_ingest", "cited_qa"],
+      "description": "An uploaded source file. MVP accepts PDF and DOCX only; XLSX and PPTX from FEAT-002 are deferred out of the signed briefing-pack scope."
+    },
+    {
+      "name": "DocumentChunk",
+      "entityClass": "PlatformData",
+      "states": ["indexed", "superseded"],
+      "workflowParticipation": ["document_ingest", "cited_qa", "evidence_table_fill"],
+      "description": "The citation index. A span of text with a resolvable locator (PDF page number, DOCX section heading and paragraph ordinal) plus a denormalised firm_id and mandate_id so an unscoped retrieval query cannot cross mandates."
+    },
+    {
+      "name": "IngestReport",
+      "entityClass": "PlatformData",
+      "states": ["open", "complete"],
+      "workflowParticipation": ["document_ingest"],
+      "description": "Per-upload-batch record naming which files indexed and which failed to parse with the parser error, so one corrupt file never blocks the batch (FEAT-002)."
+    },
+    {
+      "name": "ResearchRun",
+      "entityClass": "Domain",
+      "states": ["queued", "retrieving", "answering", "answered", "no_evidence", "failed"],
+      "workflowParticipation": ["cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "One question executed against one Mandate corpus. no_evidence is a first-class success state, not a failure: it is how the system says the fact is not in the documents rather than inventing a number."
+    },
+    {
+      "name": "Citation",
+      "entityClass": "PlatformData",
+      "states": ["proposed", "accepted", "rejected", "replaced"],
+      "workflowParticipation": ["cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "Link from a claim on a ResearchRun to the DocumentChunk that supports it. A rejected Citation is retained for audit but is filtered out of memo generation unless replaced (FEAT-003)."
+    },
+    {
+      "name": "EvidenceTable",
+      "entityClass": "Domain",
+      "states": ["draft", "filling", "filled", "partial"],
+      "workflowParticipation": ["evidence_table_fill", "memo_generate_approve_export"],
+      "description": "Rows are topics, columns are briefing questions. partial means the fill completed but at least one cell is unverified or not_in_corpus."
+    },
+    {
+      "name": "EvidenceCell",
+      "entityClass": "Domain",
+      "states": ["empty", "queued", "filled", "not_in_corpus", "unverified", "edited"],
+      "workflowParticipation": ["evidence_table_fill", "memo_generate_approve_export"],
+      "description": "One row-column intersection. Holds short answer text plus Citations, and records whether the current text came from retrieval or from a human edit. Reruns are per-cell so a 20x8 table shows per-cell progress."
+    },
+    {
+      "name": "BriefingMemo",
+      "entityClass": "Domain",
+      "states": ["draft", "generated", "pending_approval", "approved", "rejected", "exported"],
+      "workflowParticipation": ["memo_generate_approve_export"],
+      "description": "The Word work product. The approved state is the human-in-the-loop gate: no DOCX byte stream is served to a browser while the memo is in generated or pending_approval (FEAT-005)."
+    },
+    {
+      "name": "AuditEvent",
+      "entityClass": "PlatformData",
+      "states": ["recorded"],
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "Append-only. No update or delete path exists in the API. Each AI event stores model provider and version, retrieval chunk ids, actor, mandate id, and answer mode."
+    },
+    {
+      "name": "RetrievalAgent",
+      "entityClass": "AiAgent",
+      "states": ["idle", "retrieving", "complete", "blocked"],
+      "workflowParticipation": ["cited_qa", "evidence_table_fill"],
+      "description": "Ranks DocumentChunks for a question. Its query is constructed so that firm_id and mandate_id are bound parameters, not model-supplied arguments, which is why a prompt injection in an uploaded document cannot widen its scope."
+    },
+    {
+      "name": "AnsweringAgent",
+      "entityClass": "AiAgent",
+      "states": ["idle", "generating", "complete", "refused", "blocked"],
+      "workflowParticipation": ["cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "description": "Turns retrieved chunks into a cited claim. refused is the state it enters when the retrieved context does not support an answer. It has no network tool and no filesystem tool; its only input is the chunk text passed to it."
+    },
+    {
+      "name": "LlmProvider",
+      "entityClass": "ExternalApi",
+      "states": ["configured", "unavailable", "disabled"],
+      "workflowParticipation": ["cited_qa", "evidence_table_fill"],
+      "description": "Optional external model endpoint. When disabled or unavailable the system runs in extractive mode, quoting source sentences verbatim rather than generating prose, which keeps the no-invented-numbers guarantee true with no vendor dependency."
+    }
+  ],
+  "stateMachineIndex": [
+    {
+      "entity": "Mandate",
+      "states": ["active", "archived"],
+      "transitions": [
+        {
+          "from": "active",
+          "to": "archived",
+          "trigger": "mandate.archive",
+          "actors": ["partner", "admin"],
+          "guards": ["actor holds active Membership on this mandate", "no BriefingMemo in pending_approval"],
+          "sideEffects": ["AuditEvent recorded", "mandate hidden from default mandate list"]
+        },
+        {
+          "from": "archived",
+          "to": "active",
+          "trigger": "mandate.reopen",
+          "actors": ["partner", "admin"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["AuditEvent recorded"]
+        }
+      ]
+    },
+    {
+      "entity": "Membership",
+      "states": ["active", "revoked"],
+      "transitions": [
+        {
+          "from": "active",
+          "to": "revoked",
+          "trigger": "membership.revoke",
+          "actors": ["admin", "partner"],
+          "guards": ["mandate retains at least one active partner or admin"],
+          "sideEffects": ["AuditEvent recorded", "in-flight ResearchRun for that user is abandoned", "subsequent access to prior run URLs returns not found"]
+        }
+      ]
+    },
+    {
+      "entity": "Document",
+      "states": ["uploaded", "parsing", "indexed", "failed", "deleted"],
+      "transitions": [
+        {
+          "from": "uploaded",
+          "to": "parsing",
+          "trigger": "ingest.start",
+          "actors": ["system"],
+          "guards": ["file extension is pdf or docx", "file size within limit"],
+          "sideEffects": ["IngestReport opened or joined", "AuditEvent recorded"]
+        },
+        {
+          "from": "parsing",
+          "to": "indexed",
+          "trigger": "ingest.complete",
+          "actors": ["system"],
+          "guards": ["at least one DocumentChunk written", "every chunk carries firm_id, mandate_id and a resolvable locator"],
+          "sideEffects": ["DocumentChunk rows created", "full-text index updated", "IngestReport row marked indexed"]
+        },
+        {
+          "from": "parsing",
+          "to": "failed",
+          "trigger": "ingest.error",
+          "actors": ["system"],
+          "guards": [],
+          "sideEffects": ["parser error recorded on IngestReport", "sibling files in the batch continue"]
+        },
+        {
+          "from": "failed",
+          "to": "parsing",
+          "trigger": "ingest.retry",
+          "actors": ["analyst", "lead", "partner", "admin"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["AuditEvent recorded"]
+        },
+        {
+          "from": "indexed",
+          "to": "deleted",
+          "trigger": "document.delete",
+          "actors": ["lead", "partner", "admin"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["DocumentChunk rows set to superseded", "AuditEvent recorded", "existing Citations retained for audit but flagged stale"]
+        }
+      ]
+    },
+    {
+      "entity": "ResearchRun",
+      "states": ["queued", "retrieving", "answering", "answered", "no_evidence", "failed"],
+      "transitions": [
+        {
+          "from": "queued",
+          "to": "retrieving",
+          "trigger": "run.start",
+          "actors": ["system"],
+          "guards": ["actor holds active Membership on the mandate", "mandate is active"],
+          "sideEffects": ["RetrievalAgent moves to retrieving", "AuditEvent recorded with question and mandate id"]
+        },
+        {
+          "from": "retrieving",
+          "to": "answering",
+          "trigger": "run.chunks_found",
+          "actors": ["system"],
+          "guards": ["at least one DocumentChunk scored above the relevance floor", "every returned chunk has mandate_id equal to the run mandate_id"],
+          "sideEffects": ["retrieved chunk ids recorded on the run"]
+        },
+        {
+          "from": "retrieving",
+          "to": "no_evidence",
+          "trigger": "run.no_chunks",
+          "actors": ["system"],
+          "guards": [],
+          "sideEffects": ["run answer text set to the not-in-corpus disclosure", "AuditEvent recorded"]
+        },
+        {
+          "from": "answering",
+          "to": "answered",
+          "trigger": "run.answer_cited",
+          "actors": ["system"],
+          "guards": ["every claim carries at least one Citation to a retrieved chunk"],
+          "sideEffects": ["Citation rows created in proposed state", "AuditEvent records model provider, version and answer mode"]
+        },
+        {
+          "from": "answering",
+          "to": "no_evidence",
+          "trigger": "run.answer_refused",
+          "actors": ["system"],
+          "guards": ["AnsweringAgent reports retrieved context does not support an answer"],
+          "sideEffects": ["AnsweringAgent moves to refused", "AuditEvent recorded"]
+        },
+        {
+          "from": "answering",
+          "to": "failed",
+          "trigger": "run.error",
+          "actors": ["system"],
+          "guards": [],
+          "sideEffects": ["error recorded on run", "AuditEvent recorded"]
+        }
+      ]
+    },
+    {
+      "entity": "Citation",
+      "states": ["proposed", "accepted", "rejected", "replaced"],
+      "transitions": [
+        {
+          "from": "proposed",
+          "to": "accepted",
+          "trigger": "citation.accept",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on the mandate"],
+          "sideEffects": ["AuditEvent recorded"]
+        },
+        {
+          "from": "proposed",
+          "to": "rejected",
+          "trigger": "citation.reject",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on the mandate"],
+          "sideEffects": ["citation excluded from memo generation", "AuditEvent recorded"]
+        },
+        {
+          "from": "accepted",
+          "to": "rejected",
+          "trigger": "citation.reject",
+          "actors": ["lead", "partner"],
+          "guards": ["memo is not in approved or exported state"],
+          "sideEffects": ["any memo in pending_approval reverts to draft", "AuditEvent recorded"]
+        },
+        {
+          "from": "rejected",
+          "to": "replaced",
+          "trigger": "citation.replace",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["replacement chunk belongs to the same mandate"],
+          "sideEffects": ["new Citation created in proposed state", "AuditEvent recorded"]
+        }
+      ]
+    },
+    {
+      "entity": "EvidenceCell",
+      "states": ["empty", "queued", "filled", "not_in_corpus", "unverified", "edited"],
+      "transitions": [
+        {
+          "from": "empty",
+          "to": "queued",
+          "trigger": "cell.fill_requested",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on the mandate"],
+          "sideEffects": ["ResearchRun created for the row-column question"]
+        },
+        {
+          "from": "queued",
+          "to": "filled",
+          "trigger": "cell.run_answered",
+          "actors": ["system"],
+          "guards": ["backing ResearchRun reached answered", "cell has at least one Citation"],
+          "sideEffects": ["cell text and citations written", "per-cell progress pushed to the UI"]
+        },
+        {
+          "from": "queued",
+          "to": "not_in_corpus",
+          "trigger": "cell.run_no_evidence",
+          "actors": ["system"],
+          "guards": ["backing ResearchRun reached no_evidence"],
+          "sideEffects": ["cell marked not in corpus rather than left blank"]
+        },
+        {
+          "from": "filled",
+          "to": "edited",
+          "trigger": "cell.edit",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on the mandate"],
+          "sideEffects": ["original retrieved text retained on the cell for audit", "AuditEvent recorded", "edited text is what appears on export"]
+        },
+        {
+          "from": "filled",
+          "to": "unverified",
+          "trigger": "cell.mark_unverified",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": [],
+          "sideEffects": ["cell rendered with an unverified badge in the memo"]
+        },
+        {
+          "from": "unverified",
+          "to": "queued",
+          "trigger": "cell.rerun",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": [],
+          "sideEffects": ["new ResearchRun created for this cell only"]
+        },
+        {
+          "from": "not_in_corpus",
+          "to": "queued",
+          "trigger": "cell.rerun",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": [],
+          "sideEffects": ["new ResearchRun created for this cell only"]
+        }
+      ]
+    },
+    {
+      "entity": "BriefingMemo",
+      "states": ["draft", "generated", "pending_approval", "approved", "rejected", "exported"],
+      "transitions": [
+        {
+          "from": "draft",
+          "to": "generated",
+          "trigger": "memo.generate",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["EvidenceTable has at least one cell not in empty state", "no rejected Citation is referenced without a replacement"],
+          "sideEffects": ["DOCX rendered and stored server-side only", "citation appendix built from accepted and proposed citations", "AI-assisted label written into the document", "AuditEvent recorded"]
+        },
+        {
+          "from": "generated",
+          "to": "pending_approval",
+          "trigger": "memo.submit_for_approval",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["memo has a stored DOCX preview"],
+          "sideEffects": ["in-app approval request raised on the mandate", "AuditEvent recorded"]
+        },
+        {
+          "from": "pending_approval",
+          "to": "approved",
+          "trigger": "memo.approve",
+          "actors": ["lead", "partner"],
+          "guards": ["approver holds active Membership with role lead or partner", "approver is recorded separately from the generator"],
+          "sideEffects": ["download token issued", "AuditEvent records approver, run id and model version"]
+        },
+        {
+          "from": "pending_approval",
+          "to": "rejected",
+          "trigger": "memo.reject",
+          "actors": ["lead", "partner"],
+          "guards": [],
+          "sideEffects": ["rejection reason stored", "AuditEvent recorded"]
+        },
+        {
+          "from": "rejected",
+          "to": "draft",
+          "trigger": "memo.revise",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": [],
+          "sideEffects": ["stored DOCX discarded"]
+        },
+        {
+          "from": "approved",
+          "to": "exported",
+          "trigger": "memo.export",
+          "actors": ["analyst", "lead", "partner", "admin"],
+          "guards": ["memo state is approved", "download token valid"],
+          "sideEffects": ["DOCX streamed to the browser", "AuditEvent records actor, run id and model version"]
+        }
+      ]
+    }
+  ],
+  "workflowParticipationIndex": [
+    {
+      "workflow": "mandate_provisioning",
+      "subjectEntity": "Mandate",
+      "actorEntities": ["User", "Membership"],
+      "sideEffectEntities": ["AuditEvent"],
+      "statesInvolved": ["active", "archived", "revoked"]
+    },
+    {
+      "workflow": "document_ingest",
+      "subjectEntity": "Document",
+      "actorEntities": ["User", "Membership"],
+      "sideEffectEntities": ["DocumentChunk", "IngestReport", "AuditEvent"],
+      "statesInvolved": ["uploaded", "parsing", "indexed", "failed"]
+    },
+    {
+      "workflow": "cited_qa",
+      "subjectEntity": "ResearchRun",
+      "actorEntities": ["User", "Membership", "RetrievalAgent", "AnsweringAgent", "LlmProvider"],
+      "sideEffectEntities": ["Citation", "AuditEvent"],
+      "statesInvolved": ["queued", "retrieving", "answering", "answered", "no_evidence", "failed", "proposed", "rejected"]
+    },
+    {
+      "workflow": "evidence_table_fill",
+      "subjectEntity": "EvidenceTable",
+      "actorEntities": ["User", "Membership", "RetrievalAgent", "AnsweringAgent"],
+      "sideEffectEntities": ["EvidenceCell", "ResearchRun", "Citation", "AuditEvent"],
+      "statesInvolved": ["draft", "filling", "filled", "partial", "empty", "queued", "not_in_corpus", "unverified", "edited"]
+    },
+    {
+      "workflow": "memo_generate_approve_export",
+      "subjectEntity": "BriefingMemo",
+      "actorEntities": ["User", "Membership", "AnsweringAgent"],
+      "sideEffectEntities": ["AuditEvent", "Citation"],
+      "statesInvolved": ["draft", "generated", "pending_approval", "approved", "rejected", "exported"]
+    }
+  ],
+  "ownershipBoundaries": [
+    {
+      "entity": "Firm",
+      "owner": "admin",
+      "canTransitionStates": ["admin"],
+      "canRead": ["admin"]
+    },
+    {
+      "entity": "User",
+      "owner": "admin",
+      "canTransitionStates": ["admin"],
+      "canRead": ["admin", "partner"]
+    },
+    {
+      "entity": "Membership",
+      "owner": "admin",
+      "canTransitionStates": ["admin", "partner"],
+      "canRead": ["admin", "partner", "lead"]
+    },
+    {
+      "entity": "Mandate",
+      "owner": "partner",
+      "canTransitionStates": ["partner", "admin"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "Document",
+      "owner": "analyst",
+      "canTransitionStates": ["system", "analyst", "lead", "partner", "admin"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "DocumentChunk",
+      "owner": "system",
+      "canTransitionStates": ["system"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "IngestReport",
+      "owner": "system",
+      "canTransitionStates": ["system"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "ResearchRun",
+      "owner": "analyst",
+      "canTransitionStates": ["system"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "Citation",
+      "owner": "analyst",
+      "canTransitionStates": ["analyst", "lead", "partner"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "EvidenceTable",
+      "owner": "analyst",
+      "canTransitionStates": ["analyst", "lead", "partner", "system"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "EvidenceCell",
+      "owner": "analyst",
+      "canTransitionStates": ["analyst", "lead", "partner", "system"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "BriefingMemo",
+      "owner": "lead",
+      "canTransitionStates": ["analyst", "lead", "partner"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "AuditEvent",
+      "owner": "system",
+      "canTransitionStates": ["system"],
+      "canRead": ["admin", "partner"]
+    },
+    {
+      "entity": "RetrievalAgent",
+      "owner": "system",
+      "canTransitionStates": ["system"],
+      "canRead": ["admin"]
+    },
+    {
+      "entity": "AnsweringAgent",
+      "owner": "system",
+      "canTransitionStates": ["system"],
+      "canRead": ["admin"]
+    },
+    {
+      "entity": "LlmProvider",
+      "owner": "admin",
+      "canTransitionStates": ["admin"],
+      "canRead": ["admin"]
+    }
+  ],
+  "openDecisions": [
+    "MVP scope is narrower than the spec-contract MVP phase. The owner signed off the cited briefing pack only, which is FEAT-001 through FEAT-005. FEAT-006 diligence question list is out. FEAT-007 is included only as the append-only AuditEvent entity; the admin audit-pack export surface is out. FEAT-008 is included only as the AI-assisted disclosure and the no-network-tool constraint on AnsweringAgent; vendor no-train contract assertions are out. spec-contract.json still carries signedOff false and needs an explicit decision on whether to sign the full eight-feature MVP or restate it as the five-feature briefing pack.",
+    "FEAT-002 names PDF, DOCX, XLSX and PPTX. MVP ingests PDF and DOCX only, because a spreadsheet locator is a cell range rather than a page and needs its own citation model. XLSX and PPTX ingest is deferred.",
+    "Retrieval in MVP is PostgreSQL full-text ranking, not vector search. This keeps the install to a stock PostgreSQL with no pgvector extension. The DocumentChunk entity is deliberately storage-agnostic so an embedding column can be added without a state machine change, but recall on paraphrased questions will be materially worse than a vector index until then.",
+    "Authentication in MVP is a local user picker against seeded Firm users, not SSO. Membership and role enforcement are real and are the tested boundary; identity proofing is not. This must not be deployed beyond a single trusted machine until an identity provider is wired in.",
+    "LlmProvider is optional. With no API key the AnsweringAgent runs extractive-only and quotes source sentences verbatim. This guarantees no invented numbers but produces blunter prose than a generative answer. Whether extractive output is acceptable as a partner-facing first draft is the main thing to learn from the MVP.",
+    "Citation acceptance is not required before memo generation in MVP; proposed citations flow through and only rejected ones are filtered. Requiring explicit per-citation acceptance would be a stricter gate and is the obvious next tightening if partners do not trust the pack."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "mandate-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mandate — INVRT internal cited research workbench (MVP: cited briefing pack)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start": "node apps/api/src/server.js",
+    "dev": "node --watch apps/api/src/server.js",
+    "db:setup": "node scripts/pg.mjs setup",
+    "db:start": "node scripts/pg.mjs start",
+    "db:stop": "node scripts/pg.mjs stop",
+    "db:status": "node scripts/pg.mjs status",
+    "db:migrate": "node scripts/pg.mjs migrate",
+    "db:seed": "node scripts/pg.mjs seed",
+    "db:psql": "node scripts/pg.mjs psql",
+    "db:reset": "node scripts/pg.mjs reset",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3"
+  }
+}

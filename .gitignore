@@ -1,0 +1,28 @@
+# --- Mandate app ---
+node_modules/
+.env
+.localdb/
+.venv/
+__pycache__/
+storage/
+*.log
+
+# --- Magpii Skill Harness (repo .harness) ---
+# Generated harness link files (commit project.json + instructions.md instead)
+.harness/harness-local.md
+.harness/INSTRUCTIONS.md
+.harness/harness-link.json
+# Machine-local Magpii install (absolute homes — multi-developer)
+.magpii/
+HARNESS.md
+.cursor/rules/skill-harness.mdc
+.windsurf/rules/skill-harness.md
+.cursor/hooks/
+.cursor/hooks.json
+.github/copilot-instructions.md
+.claude/skills/Technology_Council
+.cursor/skills/Technology_Council
+.windsurf/skills/Technology_Council
+.codex/skills/Technology_Council
+skills/Technology_Council
+skills/RULES.md
