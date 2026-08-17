@@ -116,7 +116,7 @@ textarea { resize: vertical; min-height: 76px; }
 
 .icon-btn {
   border: none; background: none; font-size: 22px; line-height: 1;
-  color: var(--muted); padding: 0 4px;
+  color: var(--muted); padding: 4px 8px; cursor: pointer;
 }
 
 /* ---------- tabs ---------- */
@@ -235,6 +235,7 @@ table.evidence td .cell-actions { margin-top: 7px; display: flex; gap: 5px; flex
   flex-direction: column;
   z-index: 40;
 }
+.drawer[hidden] { display: none; }
 .drawer-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px; border-bottom: 1px solid var(--line);

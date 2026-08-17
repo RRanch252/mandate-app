@@ -789,6 +789,10 @@ function renderActivity(body) {
 
 /* ---------------- source drawer ---------------- */
 
+function closeDrawer() {
+  document.getElementById('drawer').hidden = true;
+}
+
 function openDrawer(citationId) {
   const citation = state.citations.get(citationId);
   if (!citation) return;
@@ -819,11 +823,21 @@ function openDrawer(citationId) {
   drawer.hidden = false;
 }
 
-document.getElementById('drawer-close').onclick = () => { document.getElementById('drawer').hidden = true; };
+document.getElementById('drawer-close').addEventListener('click', (event) => {
+  event.stopPropagation();
+  closeDrawer();
+});
 
 document.addEventListener('click', (event) => {
   const chip = event.target.closest('[data-citation]');
-  if (chip) openDrawer(chip.dataset.citation);
+  if (chip) {
+    event.preventDefault();
+    openDrawer(chip.dataset.citation);
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeDrawer();
 });
 
 /* ---------------- boot ---------------- */
