@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "project": "Mandate",
   "signedOff": true,
   "signedOffAt": "2026-08-17T09:46:00.000Z",
@@ -15,22 +15,22 @@
       "name": "User",
       "entityClass": "Identity",
       "states": ["invited", "active", "disabled"],
-      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export", "commercial_close"],
       "description": "A named person at the Firm. Carries no mandate access on its own; all access is granted through Membership."
     },
     {
       "name": "Membership",
       "entityClass": "Identity",
       "states": ["active", "revoked"],
-      "workflowParticipation": ["mandate_provisioning"],
+      "workflowParticipation": ["mandate_provisioning", "commercial_close"],
       "description": "Join between User and Mandate carrying role analyst, lead, partner, or admin. Revoking sets state revoked, which immediately removes retrieve and generate rights (FEAT-001)."
     },
     {
       "name": "Mandate",
       "entityClass": "Domain",
       "states": ["active", "archived"],
-      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
-      "description": "The engagement workspace and the isolation boundary for retrieval. Carries a restricted flag that excludes it from any firm-wide surface. Every Document, Chunk, Run, Table and Memo hangs off exactly one Mandate."
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export", "commercial_close"],
+      "description": "The engagement workspace and the isolation boundary for retrieval. Carries a restricted flag that excludes it from any firm-wide surface. Every Document, Chunk, Run, Table, Memo and Deal hangs off exactly one Mandate."
     },
     {
       "name": "Document",
@@ -92,7 +92,7 @@
       "name": "AuditEvent",
       "entityClass": "PlatformData",
       "states": ["recorded"],
-      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export"],
+      "workflowParticipation": ["mandate_provisioning", "document_ingest", "cited_qa", "evidence_table_fill", "memo_generate_approve_export", "commercial_close"],
       "description": "Append-only. No update or delete path exists in the API. Each AI event stores model provider and version, retrieval chunk ids, actor, mandate id, and answer mode."
     },
     {
@@ -115,6 +115,27 @@
       "states": ["configured", "unavailable", "disabled"],
       "workflowParticipation": ["cited_qa", "evidence_table_fill"],
       "description": "Optional external model endpoint. When disabled or unavailable the system runs in extractive mode, quoting source sentences verbatim rather than generating prose, which keeps the no-invented-numbers guarantee true with no vendor dependency."
+    },
+    {
+      "name": "Deal",
+      "entityClass": "Domain",
+      "states": ["open", "frozen", "closed"],
+      "workflowParticipation": ["commercial_close"],
+      "description": "Exactly one per Mandate. Sell-side commercial close clock (default 42 days). INVRT owns commercials and negotiation; counsel papers the SPA. A term sheet may already exist depending on when INVRT entered. Not an origination or universe object."
+    },
+    {
+      "name": "CommercialPoint",
+      "entityClass": "Domain",
+      "states": ["open", "seller", "buyer", "agreed", "dropped"],
+      "workflowParticipation": ["commercial_close"],
+      "description": "One negotiated commercial. Paper (term sheet and counsel pack) is generated from agreed_text only. A point with blocks_term_sheet true that is still live makes canIssueTermSheet false. Agreed with empty agreed_text is refused."
+    },
+    {
+      "name": "CloseCheckpoint",
+      "entityClass": "Domain",
+      "states": ["open", "done"],
+      "workflowParticipation": ["commercial_close"],
+      "description": "Process gate on the six-week close (commercials frozen, TS issued or waiver to SPA, counsel pack sent, SPA first draft, MD employment in draft, disclosure open, funds flow, sign and complete). Toggling done does not by itself freeze blotter points."
     }
   ],
   "stateMachineIndex": [
@@ -407,6 +428,96 @@
           "sideEffects": ["DOCX streamed to the browser", "AuditEvent records actor, run id and model version"]
         }
       ]
+    },
+    {
+      "entity": "Deal",
+      "states": ["open", "frozen", "closed"],
+      "transitions": [
+        {
+          "from": "open",
+          "to": "frozen",
+          "trigger": "deal.commercials_frozen",
+          "actors": ["lead", "partner", "analyst"],
+          "guards": ["every CommercialPoint with blocks_term_sheet is agreed or dropped"],
+          "sideEffects": ["AuditEvent recorded", "term sheet and counsel pack become issuable"]
+        },
+        {
+          "from": "frozen",
+          "to": "closed",
+          "trigger": "deal.sign_and_complete",
+          "actors": ["lead", "partner"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["AuditEvent recorded"]
+        }
+      ]
+    },
+    {
+      "entity": "CommercialPoint",
+      "states": ["open", "seller", "buyer", "agreed", "dropped"],
+      "transitions": [
+        {
+          "from": "open",
+          "to": "agreed",
+          "trigger": "deal.point_agreed",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["agreed_text is non-empty", "actor holds active Membership on this mandate"],
+          "sideEffects": ["AuditEvent deal.point_agreed recorded", "paper regenerated from agreed points only"]
+        },
+        {
+          "from": "seller",
+          "to": "agreed",
+          "trigger": "deal.point_agreed",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["agreed_text is non-empty"],
+          "sideEffects": ["AuditEvent deal.point_agreed recorded"]
+        },
+        {
+          "from": "buyer",
+          "to": "agreed",
+          "trigger": "deal.point_agreed",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["agreed_text is non-empty"],
+          "sideEffects": ["AuditEvent deal.point_agreed recorded"]
+        },
+        {
+          "from": "agreed",
+          "to": "open",
+          "trigger": "deal.point_reopened",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["point removed from paper", "canIssueTermSheet recomputed"]
+        },
+        {
+          "from": "open",
+          "to": "dropped",
+          "trigger": "deal.point_dropped",
+          "actors": ["lead", "partner"],
+          "guards": [],
+          "sideEffects": ["AuditEvent recorded", "point omitted from paper"]
+        }
+      ]
+    },
+    {
+      "entity": "CloseCheckpoint",
+      "states": ["open", "done"],
+      "transitions": [
+        {
+          "from": "open",
+          "to": "done",
+          "trigger": "deal.checkpoint_toggled",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": ["actor holds active Membership on this mandate"],
+          "sideEffects": ["AuditEvent recorded"]
+        },
+        {
+          "from": "done",
+          "to": "open",
+          "trigger": "deal.checkpoint_toggled",
+          "actors": ["analyst", "lead", "partner"],
+          "guards": [],
+          "sideEffects": ["AuditEvent recorded"]
+        }
+      ]
     }
   ],
   "workflowParticipationIndex": [
@@ -444,6 +555,13 @@
       "actorEntities": ["User", "Membership", "AnsweringAgent"],
       "sideEffectEntities": ["AuditEvent", "Citation"],
       "statesInvolved": ["draft", "generated", "pending_approval", "approved", "rejected", "exported"]
+    },
+    {
+      "workflow": "commercial_close",
+      "subjectEntity": "Deal",
+      "actorEntities": ["User", "Membership"],
+      "sideEffectEntities": ["CommercialPoint", "CloseCheckpoint", "AuditEvent"],
+      "statesInvolved": ["open", "seller", "buyer", "agreed", "dropped", "done", "frozen", "closed"]
     }
   ],
   "ownershipBoundaries": [
@@ -542,6 +660,24 @@
       "owner": "admin",
       "canTransitionStates": ["admin"],
       "canRead": ["admin"]
+    },
+    {
+      "entity": "Deal",
+      "owner": "lead",
+      "canTransitionStates": ["analyst", "lead", "partner"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "CommercialPoint",
+      "owner": "analyst",
+      "canTransitionStates": ["analyst", "lead", "partner"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
+    },
+    {
+      "entity": "CloseCheckpoint",
+      "owner": "analyst",
+      "canTransitionStates": ["analyst", "lead", "partner"],
+      "canRead": ["analyst", "lead", "partner", "admin"]
     }
   ],
   "openDecisions": [
@@ -550,6 +686,7 @@
     "Retrieval in MVP is PostgreSQL full-text ranking, not vector search. This keeps the install to a stock PostgreSQL with no pgvector extension. The DocumentChunk entity is deliberately storage-agnostic so an embedding column can be added without a state machine change, but recall on paraphrased questions will be materially worse than a vector index until then.",
     "Authentication in MVP is a local user picker against seeded Firm users, not SSO. Membership and role enforcement are real and are the tested boundary; identity proofing is not. This must not be deployed beyond a single trusted machine until an identity provider is wired in.",
     "LlmProvider is optional. With no API key the AnsweringAgent runs extractive-only and quotes source sentences verbatim. This guarantees no invented numbers but produces blunter prose than a generative answer. Whether extractive output is acceptable as a partner-facing first draft is the main thing to learn from the MVP.",
-    "Citation acceptance is not required before memo generation in MVP; proposed citations flow through and only rejected ones are filtered. Requiring explicit per-citation acceptance would be a stricter gate and is the obvious next tightening if partners do not trust the pack."
+    "Citation acceptance is not required before memo generation in MVP; proposed citations flow through and only rejected ones are filtered. Requiring explicit per-citation acceptance would be a stricter gate and is the obvious next tightening if partners do not trust the pack.",
+    "EPIC-006 commercial close is in-product, not a separate app. Paper is generated on GET from agreed CommercialPoints and is never stored as a file. There is no SPA editor, VDR, Sunday pack, or origination/universe surface. Deal.state frozen/closed is modelled but the Close tab currently drives process through CloseCheckpoint toggles and canIssueTermSheet rather than forcing those Deal transitions. Sell-side template only; buy-side is a later template, not a second product."
   ]
 }

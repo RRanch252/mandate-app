@@ -78,6 +78,46 @@ async function main() {
   check('mandate created', created.status === 201, JSON.stringify(created.body).slice(0, 200));
   const mandateId = created.body.mandate.id;
 
+  console.log('\nCommercial close');
+  const dealEmpty = await partner(`/api/mandates/${mandateId}/deal`);
+  check('deal auto-created', dealEmpty.status === 200, JSON.stringify(dealEmpty.body).slice(0, 200));
+  check('empty template has 10 points', (dealEmpty.body.points || []).length === 10,
+    `got ${(dealEmpty.body.points || []).length}`);
+  check('empty template has 8 checkpoints', (dealEmpty.body.checkpoints || []).length === 8);
+
+  const cedar = await partner(`/api/mandates/${mandateId}/deal/sample`, {
+    method: 'POST', body: { sample: 'cedar' },
+  });
+  check('cedar sample loaded', cedar.status === 200, JSON.stringify(cedar.body?.deal?.seller || {}).slice(0, 160));
+  check('cedar is day 8 of 42', cedar.body.deal?.day === 8 && cedar.body.deal?.days_total === 42,
+    `${cedar.body.deal?.day}/${cedar.body.deal?.days_total}`);
+  check('cedar still has 10 points', (cedar.body.points || []).length === 10);
+  check('cannot issue TS while blocking points are live', cedar.body.paper?.canIssueTermSheet === false);
+  check('term sheet omits live headline figure', !/€48/.test(cedar.body.paper?.termSheet || ''),
+    (cedar.body.paper?.termSheet || '').slice(0, 180));
+  check('live headline is listed as do-not-paper', (cedar.body.paper?.doNotPaper || []).includes('Headline price'));
+
+  const headline = (cedar.body.points || []).find((p) => p.title === 'Headline price');
+  check('cedar has a headline point', Boolean(headline));
+  const refuse = await partner(`/api/mandates/${mandateId}/deal/points/${headline?.id}`, {
+    method: 'PATCH', body: { state: 'agreed', agreed_text: '' },
+  });
+  check('refuse agreed with empty wording', refuse.status === 400, `got ${refuse.status}`);
+
+  const agreeOne = await partner(`/api/mandates/${mandateId}/deal/points/${headline.id}`, {
+    method: 'PATCH',
+    body: { agreed_text: headline.seller_position, state: 'agreed' },
+  });
+  check('agreeing one blocking point succeeds', agreeOne.status === 200, JSON.stringify(agreeOne.body?.paper || {}).slice(0, 120));
+  check('canIssueTermSheet still false until all blocking agreed', agreeOne.body.paper?.canIssueTermSheet === false);
+  check('agreed headline now appears in the term sheet', /€48\.0m/.test(agreeOne.body.paper?.termSheet || ''),
+    (agreeOne.body.paper?.termSheet || '').slice(0, 220));
+
+  const outsiderDeal = makeClient();
+  await outsiderDeal('/api/session', { method: 'POST', body: { userId: SAM } });
+  const peekDeal = await outsiderDeal(`/api/mandates/${mandateId}/deal`);
+  check('non-member GET /deal is 404', peekDeal.status === 404, `got ${peekDeal.status}`);
+
   const form = new FormData();
   form.append('files', await openAsBlob(pdf), 'acme-cim.pdf');
   form.append('files', await openAsBlob(docx), 'acme-notes.docx');
@@ -188,7 +228,7 @@ async function main() {
   console.log('\nAudit trail');
   const audit = await partner(`/api/mandates/${mandateId}/audit`);
   const actions = new Set((audit.body.events || []).map((e) => e.action));
-  for (const action of ['mandate.created', 'document.indexed', 'run.answered', 'memo.generated', 'memo.approved', 'memo.exported']) {
+  for (const action of ['mandate.created', 'document.indexed', 'run.answered', 'memo.generated', 'memo.approved', 'memo.exported', 'deal.point_agreed']) {
     check(`audit recorded ${action}`, actions.has(action));
   }
   const aiEvent = (audit.body.events || []).find((e) => e.action === 'run.answered');

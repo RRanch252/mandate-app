@@ -10,6 +10,7 @@ import { documentRouter } from './routes/documents.js';
 import { runRouter } from './routes/runs.js';
 import { tableRouter } from './routes/tables.js';
 import { memoRouter } from './routes/memos.js';
+import { dealRouter } from './routes/deal.js';
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use('/api', documentRouter);
 app.use('/api', runRouter);
 app.use('/api', tableRouter);
 app.use('/api', memoRouter);
+app.use('/api', dealRouter);
 
 app.use(express.static(config.webDir));
 
@@ -49,9 +51,9 @@ app.use((err, _req, res, _next) => {
 async function verifyDatabase() {
   const { rows } = await query(
     `SELECT count(*)::int AS n FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name IN ('firms', 'mandates', 'document_chunks', 'briefing_memos')`
+      WHERE table_schema = 'public' AND table_name IN ('firms', 'mandates', 'document_chunks', 'briefing_memos', 'deals')`
   );
-  if (rows[0].n < 4) {
+  if (rows[0].n < 5) {
     throw new Error('the database is reachable but the tables are missing — run: npm run db:migrate');
   }
   const { rows: firms } = await query(`SELECT count(*)::int AS n FROM firms`);

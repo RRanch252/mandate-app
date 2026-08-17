@@ -1,10 +1,12 @@
 # Mandate
 
 INVRT's internal research workbench. Upload the documents for a mandate, ask questions
-and get answers with clickable citations, fill an evidence table, and draft a Word
-briefing memo that a lead or partner must approve before anyone can download it.
+and get answers with clickable citations, fill an evidence table, draft a Word
+briefing memo that a lead or partner must approve before anyone can download it,
+and run the six-week sell-side commercial close (blotter → agreed paper → close list).
 
-This is the MVP: the **cited briefing pack** only.
+The original MVP is the **cited briefing pack**. The Close tab is the commercial
+close: INVRT owns commercials and negotiation; counsel papers the SPA.
 
 ---
 
@@ -35,6 +37,14 @@ http://localhost:3000
 To stop it, press `Ctrl+C` in the PowerShell window. The database keeps running in the
 background; stop that too with `npm run db:stop` if you want.
 
+If you already ran setup before the Close tab existed, apply the new tables:
+
+```powershell
+npm run db:migrate
+```
+
+Then restart `npm start`. Old mandates get a deal on first visit to Close.
+
 If you stopped the database and `npm start` complains it cannot connect, run
 `npm run db:start` first.
 
@@ -45,16 +55,23 @@ If you stopped the database and `npm start` complains it cannot connect, run
 1. **Pick who you are.** There is no password. Choose Paul Higgins to start.
 2. **Create a mandate.** This is the workspace and the wall — nothing crosses between
    mandates. Whoever creates it becomes a partner on it, so you can approve your own
-   exports while trying it out.
-3. **Upload documents** on the Documents tab. PDF and DOCX only. Wait for each file to
+   exports while trying it out. A Deal is created at the same time (empty sell-side
+   template). Existing mandates get a deal the first time you open the Close tab.
+3. **Close tab (first).** This is the six-week commercial close. The blotter is the
+   work. Agree wording only when it is actually agreed — the term sheet and counsel
+   pack are generated from those agreed points and nothing else. Blocking points
+   (headline, locked box vs completion accounts, earn-out, MD employment) prevent
+   “can issue TS” until they are agreed. Press **Load Project Cedar sample** to see
+   Brennan Precision / Helix on day 8 of 42.
+4. **Upload documents** on the Documents tab. PDF and DOCX only. Wait for each file to
    show **Indexed**.
-4. **Ask questions** on the Ask tab. Every answer carries numbered citations. Click a
+5. **Ask questions** on the Ask tab. Every answer carries numbered citations. Click a
    number to see the exact passage it came from and open the source PDF at that page.
    If the documents do not answer the question, Mandate says so rather than guessing.
-5. **Fill the evidence table.** Rows are topics, columns are briefing questions. Press
+6. **Fill the evidence table.** Rows are topics, columns are briefing questions. Press
    *Fill empty cells* and watch them fill one at a time. You can edit any cell, mark it
    unverified, or rerun it on its own. Your edit is what appears in the memo.
-6. **Generate the briefing memo**, then *Send for approval*. The download stays locked
+7. **Generate the briefing memo**, then *Send for approval*. The download stays locked
    until a lead or partner approves it. Sign in as a different person to feel the gate
    working.
 
@@ -72,6 +89,9 @@ These are deliberate, not missing pieces:
   approval state on the server, so hiding the button is not the only control.
 - **It does not read spreadsheets or slides.** PDF and DOCX only for now.
 - **It does not fetch any external or paid data.** Nothing is scraped.
+- **Close does not write a SPA.** The Paper panel is a copyable pack from agreed
+  commercials. Live points are listed as do-not-paper. There is no VDR and no
+  origination / universe surface.
 
 ---
 

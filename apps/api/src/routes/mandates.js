@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { many, one, query } from '../db.js';
 import { record, listForMandate } from '../audit.js';
 import { requireUser, requireMandate, requireRole } from '../access.js';
+import { ensureDeal } from '../services/deal.js';
 
 export const mandateRouter = Router();
 
@@ -52,6 +53,8 @@ mandateRouter.post('/mandates', async (req, res) => {
      VALUES ($1, $2, $3, $4) RETURNING id`,
     [req.user.firm_id, mandate.id, JSON.stringify([name]), JSON.stringify(DEFAULT_QUESTIONS)]
   );
+
+  await ensureDeal({ firmId: req.user.firm_id, mandateId: mandate.id });
 
   await record({
     firmId: req.user.firm_id, mandateId: mandate.id, actorUserId: req.user.id,

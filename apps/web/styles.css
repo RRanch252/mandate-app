@@ -273,3 +273,35 @@ table.evidence td .cell-actions { margin-top: 7px; display: flex; gap: 5px; flex
 
 .stack { display: grid; gap: 8px; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+.clock-track {
+  margin-top: 6px;
+  width: 160px;
+  height: 6px;
+  background: #eef1f4;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.clock-track span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+table.blotter td { min-width: 140px; }
+table.blotter th:first-child, table.blotter td:first-child { min-width: 36px; }
+tr.blotter-row { cursor: pointer; }
+tr.blotter-row:hover td { background: var(--accent-soft); }
+tr.blotter-row.selected td { background: var(--accent-soft); }
+
+pre.paper {
+  margin: 0;
+  padding: 14px 16px;
+  background: #fafbfc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}

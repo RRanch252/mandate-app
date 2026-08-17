@@ -195,3 +195,62 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 
 CREATE INDEX IF NOT EXISTS audit_mandate_idx ON audit_events (mandate_id, created_at DESC);
+
+-- One Deal per Mandate. INVRT owns commercials and negotiation; counsel papers the SPA.
+-- The finish line is two parties on a combined agreement (term sheet or SPA), then close.
+CREATE TABLE IF NOT EXISTS deals (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id           uuid NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+  mandate_id        uuid NOT NULL UNIQUE REFERENCES mandates(id) ON DELETE CASCADE,
+  state             text NOT NULL DEFAULT 'open'
+                    CHECK (state IN ('open', 'frozen', 'closed')),
+  day               integer NOT NULL DEFAULT 1 CHECK (day >= 1),
+  days_total        integer NOT NULL DEFAULT 42 CHECK (days_total >= 1),
+  side              text NOT NULL DEFAULT 'sell' CHECK (side IN ('sell', 'buy')),
+  control           text NOT NULL DEFAULT 'majority',
+  seller            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  buyer             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  model             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  operating_model   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  invrt             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  sample_key        text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS deals_firm_idx ON deals (firm_id, mandate_id);
+
+CREATE TABLE IF NOT EXISTS commercial_points (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id            uuid NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+  mandate_id         uuid NOT NULL REFERENCES mandates(id) ON DELETE CASCADE,
+  deal_id            uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+  title              text NOT NULL,
+  sort_order         integer NOT NULL,
+  blocks_term_sheet  boolean NOT NULL DEFAULT false,
+  seller_position    text NOT NULL DEFAULT '',
+  buyer_position     text NOT NULL DEFAULT '',
+  agreed_text        text NOT NULL DEFAULT '',
+  state              text NOT NULL DEFAULT 'open'
+                     CHECK (state IN ('open', 'seller', 'buyer', 'agreed', 'dropped')),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deal_id, sort_order)
+);
+
+CREATE INDEX IF NOT EXISTS commercial_points_mandate_idx ON commercial_points (mandate_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS close_checkpoints (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  firm_id     uuid NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+  mandate_id  uuid NOT NULL REFERENCES mandates(id) ON DELETE CASCADE,
+  deal_id     uuid NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+  title       text NOT NULL,
+  sort_order  integer NOT NULL,
+  done        boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deal_id, sort_order)
+);
+
+CREATE INDEX IF NOT EXISTS close_checkpoints_mandate_idx ON close_checkpoints (mandate_id, sort_order);

@@ -1,6 +1,6 @@
 {
-  "version": "0.1.0",
-  "entityContractVersion": "0.1.0",
+  "version": "0.2.0",
+  "entityContractVersion": "0.2.0",
   "project": "Mandate",
   "signedOff": true,
   "signedOffAt": "2026-08-17T09:46:00.000Z",
@@ -44,6 +44,14 @@
       "actorEntities": ["User", "Membership", "AnsweringAgent"],
       "stepCount": 5,
       "terminalStates": ["exported", "rejected"]
+    },
+    {
+      "name": "commercial_close",
+      "type": "human",
+      "subjectEntity": "Deal",
+      "actorEntities": ["User", "Membership"],
+      "stepCount": 8,
+      "terminalStates": ["frozen", "closed"]
     }
   ],
   "transitionAuthority": [
@@ -208,6 +216,33 @@
       "actors": ["analyst", "lead", "partner", "admin"],
       "guards": ["memo state is approved", "download token valid"],
       "sideEffects": ["DOCX streamed to the browser", "AuditEvent records actor, run id and model version"]
+    },
+    {
+      "entity": "CommercialPoint",
+      "from": "open",
+      "to": "agreed",
+      "workflow": "commercial_close",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["agreed_text is non-empty", "actor holds active Membership on this mandate"],
+      "sideEffects": ["AuditEvent deal.point_agreed recorded", "paper regenerated from agreed points only"]
+    },
+    {
+      "entity": "CommercialPoint",
+      "from": "agreed",
+      "to": "open",
+      "workflow": "commercial_close",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["actor holds active Membership on this mandate"],
+      "sideEffects": ["point omitted from paper", "canIssueTermSheet recomputed"]
+    },
+    {
+      "entity": "CloseCheckpoint",
+      "from": "open",
+      "to": "done",
+      "workflow": "commercial_close",
+      "actors": ["analyst", "lead", "partner"],
+      "guards": ["actor holds active Membership on this mandate"],
+      "sideEffects": ["AuditEvent recorded"]
     }
   ],
   "eventCatalogue": [
@@ -279,6 +314,26 @@
     {
       "name": "memo.exported",
       "emittedBy": "memo_generate_approve_export",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "deal.ensured",
+      "emittedBy": "commercial_close",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "deal.sample_loaded",
+      "emittedBy": "commercial_close",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "deal.point_agreed",
+      "emittedBy": "commercial_close",
+      "consumedBy": ["audit_writer"]
+    },
+    {
+      "name": "deal.checkpoint_toggled",
+      "emittedBy": "commercial_close",
       "consumedBy": ["audit_writer"]
     }
   ],
@@ -361,6 +416,7 @@
     "Jobs run in-process inside the Node API rather than on a durable queue. An API restart mid-ingest leaves a Document stuck in parsing and it must be retried by hand. A real queue is the first infrastructure change needed before more than one person uses this concurrently.",
     "answer_question declares onFailure as run.no_evidence because a retrieval miss is the expected non-answer path. A genuine infrastructure error moves the run to failed instead, which is not modelled as an event because nothing downstream consumes it in MVP.",
     "The approve-to-export gate is enforced in the API, not just the UI: the download route re-checks memo state and approver role on every request. The MVP does not prevent the same person from generating and then approving their own memo when they hold the lead or partner role, it only records both actors. Whether INVRT needs genuine four-eyes separation is an open policy question.",
-    "table.fill_completed fires even when some cells landed in not_in_corpus or unverified, which is why EvidenceTable has a partial terminal state alongside filled."
+    "table.fill_completed fires even when some cells landed in not_in_corpus or unverified, which is why EvidenceTable has a partial terminal state alongside filled.",
+    "commercial_close paper is computed on GET, not a stored artefact and not a job. There is no SPA editor, VDR, or email to counsel. Copy is a browser clipboard action. A draft term sheet may already exist when INVRT enters; issuing it is a CloseCheckpoint, not a file upload."
   ]
 }

@@ -13,6 +13,12 @@ const state = {
   audit: [],
   asking: false,
   citations: new Map(),
+  deal: null,
+  points: [],
+  checkpoints: [],
+  paper: null,
+  closeView: 'blotter',
+  selectedPointId: null,
 };
 
 let pollTimer = null;
@@ -72,6 +78,14 @@ const DOC_PILL = {
   failed: ['bad', 'Failed'],
 };
 
+const POINT_PILL = {
+  open: ['warn', 'Live'],
+  seller: ['wait', 'Seller'],
+  buyer: ['wait', 'Buyer'],
+  agreed: ['ok', 'Agreed'],
+  dropped: ['mute', 'Dropped'],
+};
+
 const MEMO_PILL = {
   draft: ['mute', 'Draft'],
   generated: ['wait', 'Generated'],
@@ -123,14 +137,22 @@ async function openMandate(id) {
   state.role = detail.role;
   state.documents = detail.documents;
   state.members = detail.members;
-  state.tab = 'documents';
+  state.tab = 'close';
+  state.closeView = 'blotter';
+  state.selectedPointId = null;
   await refreshTab();
 }
 
 async function refreshTab() {
   const id = state.mandate?.id;
   if (!id) return;
-  if (state.tab === 'documents' || state.tab === 'team') {
+  if (state.tab === 'close') {
+    const data = await api(`/mandates/${id}/deal`);
+    state.deal = data.deal;
+    state.points = data.points;
+    state.checkpoints = data.checkpoints;
+    state.paper = data.paper;
+  } else if (state.tab === 'documents' || state.tab === 'team') {
     const [docs, detail] = await Promise.all([api(`/mandates/${id}/documents`), api(`/mandates/${id}`)]);
     state.documents = docs.documents;
     state.members = detail.members;
@@ -281,6 +303,7 @@ function renderMandateList(app) {
 }
 
 const TABS = [
+  ['close', 'Close'],
   ['documents', 'Documents'],
   ['ask', 'Ask'],
   ['table', 'Evidence table'],
@@ -323,6 +346,7 @@ function renderWorkspace(app) {
 
   const body = document.getElementById('tab-body');
   ({
+    close: renderClose,
     documents: renderDocuments,
     ask: renderAsk,
     table: renderTable,
@@ -330,6 +354,396 @@ function renderWorkspace(app) {
     team: renderTeam,
     activity: renderActivity,
   })[state.tab](body);
+}
+
+/* ---------------- close (six-week commercial close) ---------------- */
+
+const CLOSE_VIEWS = [
+  ['blotter', 'Blotter'],
+  ['model', 'Model'],
+  ['people', 'People / ops'],
+  ['paper', 'Paper'],
+  ['checklist', 'Close list'],
+];
+
+function dealCounts(points = state.points) {
+  const live = points.filter((p) => ['open', 'seller', 'buyer'].includes(p.state)).length;
+  const agreed = points.filter((p) => p.state === 'agreed').length;
+  const blocking = points.filter((p) => p.blocks_term_sheet && ['open', 'seller', 'buyer'].includes(p.state)).length;
+  return { live, agreed, blocking };
+}
+
+function partyLine(deal) {
+  const seller = deal?.seller?.vehicle || deal?.seller?.name;
+  const buyer = deal?.buyer?.name;
+  if (seller && buyer) return `${seller} → ${buyer}`;
+  return 'Empty sell-side template — load Project Cedar or fill the blotter';
+}
+
+async function applyDeal(data) {
+  state.deal = data.deal;
+  state.points = data.points;
+  state.checkpoints = data.checkpoints;
+  state.paper = data.paper;
+  render();
+}
+
+function renderClose(body) {
+  const deal = state.deal;
+  const points = state.points || [];
+  const counts = dealCounts(points);
+  const paper = state.paper || {};
+  const day = deal?.day || 1;
+  const total = deal?.days_total || 42;
+  const pct = Math.min(100, Math.round((day / total) * 100));
+  const selected = points.find((p) => p.id === state.selectedPointId) || null;
+
+  body.innerHTML = `
+    <div class="panel">
+      <div class="spread">
+        <div>
+          <h2>Six-week commercial close</h2>
+          <p class="hint" style="margin:0">
+            INVRT owns commercials and negotiation. Counsel papers the SPA from
+            <strong>agreed</strong> points only. Finish line: both parties on a combined
+            agreement, then close. ${escapeHtml(partyLine(deal))}
+          </p>
+        </div>
+        <button class="btn ghost small" id="load-cedar">Load Project Cedar sample</button>
+      </div>
+      <div class="row" style="margin-top:14px; gap:18px">
+        <div>
+          <div class="meta">Clock</div>
+          <div><strong>Day ${day} / ${total}</strong></div>
+          <div class="clock-track" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        </div>
+        <div><div class="meta">Live</div><strong>${counts.live}</strong></div>
+        <div><div class="meta">Agreed</div><strong>${counts.agreed}</strong></div>
+        <div>
+          <div class="meta">Blocking TS</div>
+          <strong>${counts.blocking}</strong>
+          ${paper.canIssueTermSheet
+            ? '<div class="pill ok">Can issue TS</div>'
+            : '<div class="pill warn">Cannot issue TS</div>'}
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" style="margin-top:4px">
+      ${CLOSE_VIEWS.map(([key, label]) => `
+        <button class="tab" data-close-view="${key}" aria-selected="${state.closeView === key}">${label}</button>`).join('')}
+    </div>
+    <div id="close-body"></div>`;
+
+  document.getElementById('load-cedar').onclick = async (event) => {
+    if (!window.confirm('Replace this mandate’s deal with the Project Cedar fixture? Live edits on the blotter will be overwritten.')) return;
+    event.target.disabled = true;
+    try {
+      const data = await api(`/mandates/${state.mandate.id}/deal/sample`, { method: 'POST', body: { sample: 'cedar' } });
+      state.selectedPointId = null;
+      state.closeView = 'blotter';
+      await applyDeal(data);
+      toast('Project Cedar loaded — Brennan Precision, day 8 of 42.');
+    } catch (err) {
+      toast(err.message, true);
+      event.target.disabled = false;
+    }
+  };
+
+  body.querySelectorAll('[data-close-view]').forEach((btn) => {
+    btn.onclick = () => {
+      state.closeView = btn.dataset.closeView;
+      render();
+    };
+  });
+
+  const inner = document.getElementById('close-body');
+  ({
+    blotter: () => renderBlotter(inner, selected),
+    model: () => renderDealModel(inner),
+    people: () => renderDealPeople(inner),
+    paper: () => renderDealPaper(inner),
+    checklist: () => renderDealChecklist(inner),
+  })[state.closeView]();
+}
+
+function renderBlotter(body, selected) {
+  const points = state.points || [];
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Commercial blotter</h2>
+      <p class="hint">Click a row to edit positions. Agree wording only when both sides have actually landed there — paper is generated from agreed text, nothing else.</p>
+      <div class="table-scroll">
+        <table class="evidence blotter">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Point</th>
+              <th>Seller</th>
+              <th>Buyer</th>
+              <th>Agreed</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${points.map((p) => `
+              <tr class="blotter-row${selected?.id === p.id ? ' selected' : ''}" data-point="${p.id}">
+                <td class="meta">${p.sort_order}</td>
+                <td>
+                  <strong>${escapeHtml(p.title)}</strong>
+                  ${p.blocks_term_sheet ? '<div class="pill warn" style="margin-top:4px">Blocks TS</div>' : ''}
+                </td>
+                <td class="cell-text">${escapeHtml(p.seller_position) || '<span class="meta">—</span>'}</td>
+                <td class="cell-text">${escapeHtml(p.buyer_position) || '<span class="meta">—</span>'}</td>
+                <td class="cell-text">${escapeHtml(p.agreed_text) || '<span class="meta">—</span>'}</td>
+                <td>${pill(POINT_PILL, p.state)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ${selected ? renderPointEditor(selected) : '<div class="empty">Select a commercial point to edit.</div>'}`;
+
+  body.querySelectorAll('[data-point]').forEach((row) => {
+    row.onclick = () => {
+      state.selectedPointId = row.dataset.point;
+      render();
+    };
+  });
+  bindPointEditor(body, selected);
+}
+
+function renderPointEditor(point) {
+  return `
+    <div class="panel" id="point-editor">
+      <div class="spread">
+        <h2>${escapeHtml(point.title)}</h2>
+        <div class="row">
+          ${pill(POINT_PILL, point.state)}
+          ${point.blocks_term_sheet ? '<span class="pill warn">Blocks TS</span>' : ''}
+        </div>
+      </div>
+      <p class="hint">Agree seller or buyer wording copies that side into agreed text and freezes the point. Mark agreed uses the agreed box as typed.</p>
+      <div class="stack">
+        <label class="meta">Seller position
+          <textarea id="pt-seller">${escapeHtml(point.seller_position)}</textarea>
+        </label>
+        <label class="meta">Buyer position
+          <textarea id="pt-buyer">${escapeHtml(point.buyer_position)}</textarea>
+        </label>
+        <label class="meta">Agreed text (what paper will emit)
+          <textarea id="pt-agreed">${escapeHtml(point.agreed_text)}</textarea>
+        </label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn subtle small" data-pt="save">Save positions</button>
+        <button class="btn small" data-pt="agree-seller">Agree seller wording</button>
+        <button class="btn small" data-pt="agree-buyer">Agree buyer wording</button>
+        <button class="btn ghost small" data-pt="agree">Mark agreed</button>
+        <button class="btn subtle small" data-pt="reopen">Re-open</button>
+        <button class="btn danger small" data-pt="drop">Drop</button>
+      </div>
+    </div>`;
+}
+
+function bindPointEditor(body, point) {
+  if (!point) return;
+  const readFields = () => ({
+    seller_position: document.getElementById('pt-seller').value,
+    buyer_position: document.getElementById('pt-buyer').value,
+    agreed_text: document.getElementById('pt-agreed').value,
+  });
+  const send = async (patch, okMessage) => {
+    try {
+      const data = await api(`/mandates/${state.mandate.id}/deal/points/${point.id}`, {
+        method: 'PATCH', body: patch,
+      });
+      await applyDeal(data);
+      if (okMessage) toast(okMessage);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+  body.querySelectorAll('[data-pt]').forEach((btn) => {
+    btn.onclick = async (event) => {
+      event.stopPropagation();
+      const fields = readFields();
+      const action = btn.dataset.pt;
+      if (action === 'save') return send({ ...fields, state: point.state === 'agreed' ? point.state : 'open' }, 'Positions saved.');
+      if (action === 'agree-seller') {
+        if (!fields.seller_position.trim()) return toast('Seller wording is empty.', true);
+        return send({ ...fields, agreed_text: fields.seller_position, state: 'agreed' }, 'Agreed on seller wording. Paper will use this text.');
+      }
+      if (action === 'agree-buyer') {
+        if (!fields.buyer_position.trim()) return toast('Buyer wording is empty.', true);
+        return send({ ...fields, agreed_text: fields.buyer_position, state: 'agreed' }, 'Agreed on buyer wording. Paper will use this text.');
+      }
+      if (action === 'agree') return send({ ...fields, state: 'agreed' });
+      if (action === 'reopen') return send({ ...fields, state: 'open' }, 'Point re-opened. It will not appear in paper until agreed again.');
+      if (action === 'drop') return send({ ...fields, state: 'dropped' }, 'Point dropped.');
+    };
+  });
+}
+
+function renderDealModel(body) {
+  const model = state.deal?.model || {};
+  const headline = model.headline || {};
+  const ebitda = model.ebitda || {};
+  const netDebt = model.netDebt || {};
+  const earnOut = model.earnOut || {};
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Model</h2>
+      <p class="hint">Numbers here are working commercials, not a DCF. They do not go into the term sheet until the matching blotter point is agreed.</p>
+      <div class="row">
+        <label class="meta grow">Clock day
+          <input type="text" id="model-day" value="${escapeHtml(state.deal?.day ?? 1)}" />
+        </label>
+        <label class="meta grow">EBITDA (${escapeHtml(ebitda.unit || 'm')} ${escapeHtml(model.currency || '')})
+          <input type="text" id="model-ebitda" value="${escapeHtml(ebitda.value ?? '')}" />
+        </label>
+        <label class="meta grow">Headline — seller
+          <input type="text" id="model-hs" value="${escapeHtml(headline.seller ?? '')}" />
+        </label>
+        <label class="meta grow">Headline — buyer
+          <input type="text" id="model-hb" value="${escapeHtml(headline.buyer ?? '')}" />
+        </label>
+        <label class="meta grow">Net debt
+          <input type="text" id="model-nd" value="${escapeHtml(netDebt.value ?? '')}" />
+        </label>
+      </div>
+      <p class="meta" style="margin-top:10px">
+        Earn-out seller: ${escapeHtml(earnOut.seller || '—')}<br />
+        Earn-out buyer: ${escapeHtml(earnOut.buyer || '—')}
+        ${ebitda.basis ? `<br />EBITDA basis: ${escapeHtml(ebitda.basis)}` : ''}
+        ${netDebt.note ? `<br />${escapeHtml(netDebt.note)}` : ''}
+      </p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn small" id="save-model">Save day and model</button>
+      </div>
+    </div>`;
+  document.getElementById('save-model').onclick = async () => {
+    const day = Number(document.getElementById('model-day').value);
+    const nextModel = {
+      ...model,
+      ebitda: { ...ebitda, value: Number(document.getElementById('model-ebitda').value) || document.getElementById('model-ebitda').value },
+      headline: {
+        ...headline,
+        seller: Number(document.getElementById('model-hs').value) || document.getElementById('model-hs').value,
+        buyer: Number(document.getElementById('model-hb').value) || document.getElementById('model-hb').value,
+      },
+      netDebt: { ...netDebt, value: Number(document.getElementById('model-nd').value) || document.getElementById('model-nd').value },
+    };
+    try {
+      await applyDeal(await api(`/mandates/${state.mandate.id}/deal`, {
+        method: 'PATCH', body: { day, model: nextModel },
+      }));
+      toast('Model saved. Headline still does not paper until the blotter point is agreed.');
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+function renderDealPeople(body) {
+  const ops = state.deal?.operating_model || {};
+  const md = ops.md || {};
+  const perimeter = ops.perimeter || {};
+  const invrt = state.deal?.invrt || {};
+  body.innerHTML = `
+    <div class="panel">
+      <h2>People / ops</h2>
+      <p class="hint">Operating facts that sit behind the blotter. Employment and perimeter still have to be agreed as commercial points before they appear in paper.</p>
+      <div class="card-list">
+        <div class="card">
+          <strong>Managing director</strong>
+          <div class="meta">${escapeHtml(md.name || 'Not set')}</div>
+          <div>${escapeHtml(md.role || '')}</div>
+          <div class="meta">${escapeHtml(md.note || '')}</div>
+        </div>
+        <div class="card">
+          <strong>Perimeter</strong>
+          <div>In: ${escapeHtml(perimeter.in || '—')}</div>
+          <div>Out: ${escapeHtml(perimeter.out || '—')}</div>
+        </div>
+        <div class="card">
+          <strong>Day-1 operating</strong>
+          <div>${escapeHtml(ops.familyRecharges || 'Family recharges: live on blotter')}</div>
+          <div>${escapeHtml(ops.groupFd || 'Group FD: live on blotter')}</div>
+        </div>
+        <div class="card">
+          <strong>INVRT</strong>
+          <div>${escapeHtml(invrt.role || '')}</div>
+          <div class="meta">
+            ${invrt.feePct ? `Fee ${invrt.feePct}% of ${escapeHtml(invrt.feeBase || 'equity value')}` : ''}
+            ${invrt.kickerPct ? ` · ${invrt.kickerPct}% kicker` : ''}
+          </div>
+          <div class="meta">${escapeHtml(invrt.termSheet || '')}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderDealPaper(body) {
+  const paper = state.paper || {};
+  const can = Boolean(paper.canIssueTermSheet);
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Paper</h2>
+      <p class="hint">
+        Generated on the server from <strong>agreed</strong> blotter points only.
+        Live points are listed as do-not-paper. Copy this into an email to counsel —
+        it is not a SPA editor and it is not stored as a file.
+      </p>
+      ${can
+        ? '<div class="disclosure" style="border-color:#b7d7c4;background:var(--good-soft);color:var(--good)">Every blocking commercial is agreed. This pack can be issued.</div>'
+        : `<div class="disclosure">Cannot issue a term sheet yet. Still live and blocking: ${(paper.blockingOpen || []).map((p) => escapeHtml(p.title)).join('; ') || '—'}</div>`}
+      <div class="spread" style="margin-bottom:8px">
+        <h3 style="margin:0;font-size:15px">Term sheet (agreed commercials only)</h3>
+        <button class="btn ghost small" data-copy="termSheet">Copy term sheet</button>
+      </div>
+      <pre class="paper">${escapeHtml(paper.termSheet || '')}</pre>
+      <div class="spread" style="margin:16px 0 8px">
+        <h3 style="margin:0;font-size:15px">Counsel pack</h3>
+        <button class="btn ghost small" data-copy="counselPack">Copy counsel pack</button>
+      </div>
+      <pre class="paper">${escapeHtml(paper.counselPack || '')}</pre>
+    </div>`;
+  body.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.onclick = async () => {
+      const text = paper[btn.dataset.copy] || '';
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('Copied. Check it still contains only agreed commercials before you send it.');
+      } catch {
+        toast('Could not copy — select the text and copy it yourself.', true);
+      }
+    };
+  });
+}
+
+function renderDealChecklist(body) {
+  const items = state.checkpoints || [];
+  const done = items.filter((c) => c.done).length;
+  body.innerHTML = `
+    <div class="panel">
+      <h2>Close list</h2>
+      <p class="hint">${done} of ${items.length} done. These are process gates, not commercials. Toggling “Commercials frozen” does not freeze the blotter by itself — agree the blocking points first.</p>
+      <div class="card-list">
+        ${items.map((c) => `
+          <button class="card clickable" data-toggle="${c.id}">
+            <div class="spread">
+              <strong>${escapeHtml(c.title)}</strong>
+              ${c.done ? '<span class="pill ok">Done</span>' : '<span class="pill mute">Open</span>'}
+            </div>
+          </button>`).join('')}
+      </div>
+    </div>`;
+  body.querySelectorAll('[data-toggle]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await applyDeal(await api(`/mandates/${state.mandate.id}/deal/checkpoints/${btn.dataset.toggle}/toggle`, { method: 'POST' }));
+      } catch (err) { toast(err.message, true); }
+    };
+  });
 }
 
 /* ---------------- documents ---------------- */

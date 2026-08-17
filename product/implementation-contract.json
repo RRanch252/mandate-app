@@ -1,0 +1,41 @@
+{
+  "version": "0.1.0",
+  "featureId": "FEAT-009",
+  "signedOff": true,
+  "signedOffAt": "2026-08-17T12:00:00.000Z",
+  "acceptanceCriteria": [
+    "One Deal per Mandate is created with the empty sell-side template (10 points, 8 checkpoints) on mandate create or first GET /deal",
+    "GET /api/mandates/:id/deal returns deal, points, checkpoints, and server-generated paper",
+    "POST /deal/sample with sample cedar replaces the deal with Project Cedar",
+    "PATCH point to state agreed with empty agreed_text is refused",
+    "paper.canIssueTermSheet is false while any blocking point is live",
+    "paper.termSheet and counselPack include only agreed commercials; live points are do-not-paper",
+    "Smoke test records deal.point_agreed; non-member GET /deal is 404",
+    "Cited Q&A, ingest, evidence table, and memo approval still pass"
+  ],
+  "fileTargets": [
+    "db/schema.sql",
+    "apps/api/src/services/deal.js",
+    "apps/api/src/routes/deal.js",
+    "apps/api/src/routes/mandates.js",
+    "apps/api/src/server.js",
+    "apps/web/app.js",
+    "apps/web/styles.css",
+    "product/entity-contract.json",
+    "product/workflow-contract.json",
+    "scripts/smoke-test.mjs",
+    "README.md"
+  ],
+  "testOrder": [
+    "npm run db:migrate",
+    "GET /deal on a new mandate has 10 points",
+    "POST /deal/sample cedar then agree one blocking point; canIssueTermSheet remains false",
+    "audit contains deal.point_agreed",
+    "existing smoke path: ingest, cited Q&A, evidence table, approve-to-export"
+  ],
+  "dependencies": [
+    "FEAT-001 mandate membership",
+    "existing Express requireMandate"
+  ],
+  "rollbackPlan": "Stop using the Close tab. Tables are additive CREATE IF NOT EXISTS; they do not alter briefing-pack tables. Drop deals, commercial_points, and close_checkpoints if the slice is reverted."
+}
